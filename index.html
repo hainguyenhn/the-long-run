@@ -500,133 +500,6 @@ statStrip.innerHTML = stats.map(([l,n]) => `<div class="stat"><div class="n">${n
 const milesToRadius = mi => Math.min(0.55, Math.max(0.22, Math.sqrt(mi) * 0.035));
 const hoursToAlt = hr => Math.min(0.24, Math.max(0.014, Math.log10(hr + 1) * 0.10));
 
-// great-circle midpoint + central angle, used to float a city label right at each arc's peak
-const ARC_ALT_AUTO_SCALE = 0.32;
-function toRad(d){ return d * Math.PI / 180; }
-function toDeg(r){ return r * 180 / Math.PI; }
-function greatCircleMid(lat1, lng1, lat2, lng2){
-  const [la1, lo1, la2, lo2] = [toRad(lat1), toRad(lng1), toRad(lat2), toRad(lng2)];
-  const dLng = lo2 - lo1;
-  const Bx = Math.cos(la2) * Math.cos(dLng);
-  const By = Math.cos(la2) * Math.sin(dLng);
-  const laMid = Math.atan2(Math.sin(la1) + Math.sin(la2), Math.sqrt((Math.cos(la1) + Bx) ** 2 + By ** 2));
-  const loMid = lo1 + Math.atan2(By, Math.cos(la1) + Bx);
-  return { lat: toDeg(laMid), lng: toDeg(loMid) };
-}
-function centralAngle(lat1, lng1, lat2, lng2){
-  const [la1, lo1, la2, lo2] = [toRad(lat1), toRad(lng1), toRad(lat2), toRad(lng2)];
-  const dLat = la2 - la1, dLng = lo2 - lo1;
-  const a = Math.sin(dLat/2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng/2) ** 2;
-  return 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-// point at fraction t (0-1) along the great-circle path from p1 to p2
-function intermediatePoint(lat1, lng1, lat2, lng2, t){
-  const d = centralAngle(lat1, lng1, lat2, lng2);
-  if (d === 0) return { lat: lat1, lng: lng1 };
-  const [la1, lo1, la2, lo2] = [toRad(lat1), toRad(lng1), toRad(lat2), toRad(lng2)];
-  const A = Math.sin((1 - t) * d) / Math.sin(d);
-  const B = Math.sin(t * d) / Math.sin(d);
-  const x = A * Math.cos(la1) * Math.cos(lo1) + B * Math.cos(la2) * Math.cos(lo2);
-  const y = A * Math.cos(la1) * Math.sin(lo1) + B * Math.cos(la2) * Math.sin(lo2);
-  const z = A * Math.sin(la1) + B * Math.sin(la2);
-  return { lat: toDeg(Math.atan2(z, Math.sqrt(x*x + y*y))), lng: toDeg(Math.atan2(y, x)) };
-}
-// compass bearing (0=N, 90=E, clockwise) from p1 to p2
-function initialBearing(lat1, lng1, lat2, lng2){
-  const [la1, lo1, la2, lo2] = [toRad(lat1), toRad(lng1), toRad(lat2), toRad(lng2)];
-  const dLng = lo2 - lo1;
-  const y = Math.sin(dLng) * Math.cos(la2);
-  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLng);
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
-}
-// Exact replica of three-globe's own arc-tube curve construction (a cubic
-// bezier through 4 control points) so we can place a label EXACTLY on the
-// rendered tube's surface at any point along its length.
-const GLOBE_RADIUS = 100;
-function polar2Cartesian(lat, lng, relAlt){
-  const phi = toRad(90 - lat), theta = toRad(90 - lng);
-  const r = GLOBE_RADIUS * (1 + (relAlt || 0));
-  const phiSin = Math.sin(phi);
-  return { x: r * phiSin * Math.cos(theta), y: r * Math.cos(phi), z: r * phiSin * Math.sin(theta) };
-}
-function cartesian2Polar(v){
-  const x = v.x, y = v.y, z = v.z;
-  const r = Math.sqrt(x*x + y*y + z*z);
-  const phi = Math.acos(y / r);
-  const theta = Math.atan2(z, x);
-  return {
-    lat: 90 - toDeg(phi),
-    lng: 90 - toDeg(theta) - (theta < -Math.PI / 2 ? 360 : 0),
-    altitude: r / GLOBE_RADIUS - 1
-  };
-}
-function cubicBezierPoint(p0, p1, p2, p3, t){
-  const mt = 1 - t, a = mt*mt*mt, b = 3*mt*mt*t, c = 3*mt*t*t, d = t*t*t;
-  return {
-    x: a*p0.x + b*p1.x + c*p2.x + d*p3.x,
-    y: a*p0.y + b*p1.y + c*p2.y + d*p3.y,
-    z: a*p0.z + b*p1.z + c*p2.z + d*p3.z
-  };
-}
-// point at parameter t (0=home, 1=city) on the actual rendered arc tube
-function arcPointAt(lat1, lng1, lat2, lng2, t){
-  const peakAlt = centralAngle(lat1, lng1, lat2, lng2) / 2 * ARC_ALT_AUTO_SCALE;
-  const cpAlt = peakAlt * 1.5; // matches three-globe's calcAltCp(0, peakAlt)
-  const m1 = intermediatePoint(lat1, lng1, lat2, lng2, 0.25);
-  const m2 = intermediatePoint(lat1, lng1, lat2, lng2, 0.75);
-  const P0 = polar2Cartesian(lat1, lng1, 0);
-  const P1 = polar2Cartesian(m1.lat, m1.lng, cpAlt);
-  const P2 = polar2Cartesian(m2.lat, m2.lng, cpAlt);
-  const P3 = polar2Cartesian(lat2, lng2, 0);
-  return cartesian2Polar(cubicBezierPoint(P0, P1, P2, P3, t));
-}
-// where along the tube (0-1) to place the label — biased toward the
-// destination rather than the exact midpoint. Short hops near home (Folsom,
-// Mountain View, SF, Tustin...) have their midpoint sitting low, right next
-// to the tall home marker, which buries the text; shifting toward the city
-// end keeps it clearly on the same tube but clear of that cluster.
-//
-// The home marker's footprint (radius from milesToRadius, inflated to
-// account for its height/perspective) can be a big fraction — or even all —
-// of a short arc's total length, so a fixed t isn't enough: for a hop like
-// Folsom, the ENTIRE tube sits close to home. Instead, push t adaptively:
-// far enough past the home footprint that the label clears it, but capped
-// so it never overshoots onto the destination's own marker.
-const DEFAULT_LABEL_T = 0.64;
-const MAX_LABEL_T = 0.92;
-const homeFootprintDeg = milesToRadius(home.miles) * 2.5;
-const CITY_LABELS = clusters.filter(c => c !== home).map(c => {
-  const totalDeg = centralAngle(home.lat, home.lon, c.lat, c.lon) * 180 / Math.PI;
-  let t = DEFAULT_LABEL_T;
-  if (totalDeg > 0) {
-    const clearT = homeFootprintDeg / totalDeg + 0.08;
-    t = Math.min(MAX_LABEL_T, Math.max(DEFAULT_LABEL_T, clearT));
-  }
-  const pos = arcPointAt(home.lat, home.lon, c.lat, c.lon, t);
-  // The label sits exactly on the tube's centerline, which is INSIDE the
-  // solid tube mesh (arcStroke gives it real radius) — without a lift the
-  // text is depth-occluded by the tube's own near surface and never
-  // renders at all. Lift it clear of that radius (comfortably, in the same
-  // relative-altitude units used everywhere else); this is a rounding
-  // error next to a long arc's own altitude, but decisive for flat, close
-  // hops like Folsom whose entire tube barely rises off the surface.
-  const labelAltitude = pos.altitude + 0.012;
-  // tilt the label to match the tube's local direction at this point:
-  // sample two nearby points on the same curve and use their bearing.
-  // labelRotation is "clockwise deg relative to the latitude-parallel plane",
-  // i.e. 0 = due-east-aligned, so subtract 90 from the compass bearing —
-  // then keep it in -90..90 so the text never renders upside down.
-  const p1 = arcPointAt(home.lat, home.lon, c.lat, c.lon, Math.max(0, t - 0.03));
-  const p2 = arcPointAt(home.lat, home.lon, c.lat, c.lon, Math.min(1, t + 0.03));
-  const bearing = initialBearing(p1.lat, p1.lng, p2.lat, p2.lng);
-  let rotation = ((bearing - 90) % 360 + 540) % 360 - 180; // normalize to -180..180
-  if (rotation > 90) rotation -= 180;
-  else if (rotation < -90) rotation += 180;
-  return { type: 'city', cluster: c, name: placeOf(c).city, lat: pos.lat, lng: pos.lng, altitude: labelAltitude, size: 0.6, rotation };
-});
-const ALL_LABELS = COUNTRY_LABELS.concat(CITY_LABELS);
-
-
 let selected = null;
 
 function pointsData(){
@@ -665,15 +538,14 @@ const world = Globe()(document.getElementById('globeViz'))
   .polygonLabel(d => `<div style="font-family:Manrope,sans-serif;background:#121b30;border:1px solid #24304c;padding:6px 10px;border-radius:7px;color:#eef1f8;font-size:12px;">
       <b>${d.properties.name}</b><span style="color:#8b93ac;"> &middot; ${d.properties.continent}</span>
     </div>`)
-  .labelsData(ALL_LABELS)
+  .labelsData(COUNTRY_LABELS)
   .labelLat('lat')
   .labelLng('lng')
   .labelText('name')
   .labelSize(d => d.size)
-  .labelColor(d => d.type === 'city' ? 'rgba(255,192,138,0.92)' : 'rgba(240,238,228,0.72)')
+  .labelColor(() => 'rgba(240,238,228,0.72)')
   .labelIncludeDot(false)
-  .labelAltitude(d => d.type === 'city' ? d.altitude : 0.008)
-  .labelRotation(d => d.type === 'city' ? d.rotation : 0)
+  .labelAltitude(0.008)
   .labelResolution(3)
   .labelDotRadius(0)
   .pointsData(pointsData())
