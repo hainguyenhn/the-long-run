@@ -129,8 +129,9 @@
     font-size: 10.5px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #52525b;
-    font-weight: 600;
+    color: #b4b8c5;
+    font-weight: 700;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.65);
   }
 
   #controls{
@@ -521,9 +522,59 @@ function centralAngle(lat1, lng1, lat2, lng2){
 const CITY_LABELS = clusters.filter(c => c !== home).map(c => {
   const mid = greatCircleMid(home.lat, home.lon, c.lat, c.lon);
   const alt = centralAngle(home.lat, home.lon, c.lat, c.lon) / 2 * ARC_ALT_AUTO_SCALE;
-  return { type: 'city', name: placeOf(c).city, lat: mid.lat, lng: mid.lng, altitude: alt + 0.012, size: 0.6 };
+  return { type: 'city', cluster: c, name: placeOf(c).city, lat: mid.lat, lng: mid.lng, altitude: alt + 0.012, size: 0.6 };
 });
 const ALL_LABELS = COUNTRY_LABELS.concat(CITY_LABELS);
+
+// after the arc tubes actually render, snap each city label onto the real tube
+// geometry (rather than our own approximate great-circle math) so the text
+// sits exactly on the tube's surface at every zoom level.
+function mulMat4Vec3(m, v){
+  const [x,y,z] = v;
+  let w = m[3]*x + m[7]*y + m[11]*z + m[15];
+  w = w || 1;
+  return [
+    (m[0]*x + m[4]*y + m[8]*z + m[12]) / w,
+    (m[1]*x + m[5]*y + m[9]*z + m[13]) / w,
+    (m[2]*x + m[6]*y + m[10]*z + m[14]) / w
+  ];
+}
+function snapCityLabelsToArcs(){
+  const arcs = world.arcsData();
+  let changed = false;
+  arcs.forEach(d => {
+    const obj = d.__threeObjArc;
+    const mesh = obj && obj.children && obj.children[0];
+    const posAttr = mesh && mesh.geometry && mesh.geometry.attributes && mesh.geometry.attributes.position;
+    if (!posAttr) return;
+    const label = CITY_LABELS.find(c => c.cluster === d.cluster);
+    if (!label) return;
+    obj.updateWorldMatrix(true, false);
+    mesh.updateWorldMatrix(true, false);
+    const m = mesh.matrixWorld.elements;
+    // find the tube's highest point above the globe's center (its visual
+    // peak = "the middle of the arc"). For very long arcs the peak region is
+    // broad/flat, so a single farthest vertex is noisy — average the world
+    // positions of the top few candidates for a stable anchor point.
+    const pts = [];
+    for (let i = 0; i < posAttr.count; i++){
+      const wp = mulMat4Vec3(m, [posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)]);
+      pts.push({ wp, d2: wp[0]*wp[0] + wp[1]*wp[1] + wp[2]*wp[2] });
+    }
+    pts.sort((a, b) => b.d2 - a.d2);
+    const top = pts.slice(0, Math.max(1, Math.round(posAttr.count * 0.03)));
+    const avg = top.reduce((acc, p) => [acc[0]+p.wp[0], acc[1]+p.wp[1], acc[2]+p.wp[2]], [0,0,0]).map(v => v / top.length);
+    const geo = world.toGeoCoords({ x: avg[0], y: avg[1], z: avg[2] });
+    if (geo && geo.lat != null && geo.lng != null) {
+      label.lat = geo.lat;
+      label.lng = geo.lng;
+      label.altitude = geo.altitude;
+      changed = true;
+    }
+  });
+  if (changed) world.labelsData(ALL_LABELS);
+  return changed;
+}
 
 let selected = null;
 
@@ -622,6 +673,10 @@ const world = Globe()(document.getElementById('globeViz'))
     ctrl.dampingFactor = 0.08;
     ctrl.minDistance = 105;
     ctrl.maxDistance = 520;
+
+    // arc tube meshes are built asynchronously; retry a few times to make sure
+    // every label finds its tube's real geometry (idempotent, harmless to repeat)
+    [150, 400, 900, 1800].forEach(delay => setTimeout(snapCityLabelsToArcs, delay));
   });
 
 function resize(){
