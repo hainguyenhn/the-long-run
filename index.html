@@ -519,10 +519,41 @@ function centralAngle(lat1, lng1, lat2, lng2){
   const a = Math.sin(dLat/2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng/2) ** 2;
   return 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
+// point at fraction t (0-1) along the great-circle path from p1 to p2
+function intermediatePoint(lat1, lng1, lat2, lng2, t){
+  const d = centralAngle(lat1, lng1, lat2, lng2);
+  if (d === 0) return { lat: lat1, lng: lng1 };
+  const [la1, lo1, la2, lo2] = [toRad(lat1), toRad(lng1), toRad(lat2), toRad(lng2)];
+  const A = Math.sin((1 - t) * d) / Math.sin(d);
+  const B = Math.sin(t * d) / Math.sin(d);
+  const x = A * Math.cos(la1) * Math.cos(lo1) + B * Math.cos(la2) * Math.cos(lo2);
+  const y = A * Math.cos(la1) * Math.sin(lo1) + B * Math.cos(la2) * Math.sin(lo2);
+  const z = A * Math.sin(la1) + B * Math.sin(la2);
+  return { lat: toDeg(Math.atan2(z, Math.sqrt(x*x + y*y))), lng: toDeg(Math.atan2(y, x)) };
+}
+// compass bearing (0=N, 90=E, clockwise) from p1 to p2
+function initialBearing(lat1, lng1, lat2, lng2){
+  const [la1, lo1, la2, lo2] = [toRad(lat1), toRad(lng1), toRad(lat2), toRad(lng2)];
+  const dLng = lo2 - lo1;
+  const y = Math.sin(dLng) * Math.cos(la2);
+  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLng);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
 const CITY_LABELS = clusters.filter(c => c !== home).map(c => {
   const mid = greatCircleMid(home.lat, home.lon, c.lat, c.lon);
   const alt = centralAngle(home.lat, home.lon, c.lat, c.lon) / 2 * ARC_ALT_AUTO_SCALE;
-  return { type: 'city', cluster: c, name: placeOf(c).city, lat: mid.lat, lng: mid.lng, altitude: alt + 0.012, size: 0.6 };
+  // tilt the label to match the tube's local direction at its midpoint:
+  // sample two points just before/after the midpoint and use their bearing.
+  // labelRotation is "clockwise deg relative to the latitude-parallel plane",
+  // i.e. 0 = due-east-aligned, so subtract 90 from the compass bearing —
+  // then keep it in -90..90 so the text never renders upside down.
+  const p1 = intermediatePoint(home.lat, home.lon, c.lat, c.lon, 0.47);
+  const p2 = intermediatePoint(home.lat, home.lon, c.lat, c.lon, 0.53);
+  const bearing = initialBearing(p1.lat, p1.lng, p2.lat, p2.lng);
+  let rotation = ((bearing - 90) % 360 + 540) % 360 - 180; // normalize to -180..180
+  if (rotation > 90) rotation -= 180;
+  else if (rotation < -90) rotation += 180;
+  return { type: 'city', cluster: c, name: placeOf(c).city, lat: mid.lat, lng: mid.lng, altitude: alt + 0.012, size: 0.6, rotation };
 });
 const ALL_LABELS = COUNTRY_LABELS.concat(CITY_LABELS);
 
@@ -622,6 +653,7 @@ const world = Globe()(document.getElementById('globeViz'))
   .labelColor(d => d.type === 'city' ? 'rgba(255,192,138,0.92)' : 'rgba(240,238,228,0.72)')
   .labelIncludeDot(false)
   .labelAltitude(d => d.type === 'city' ? d.altitude : 0.008)
+  .labelRotation(d => d.type === 'city' ? d.rotation : 0)
   .labelResolution(3)
   .labelDotRadius(0)
   .pointsData(pointsData())
