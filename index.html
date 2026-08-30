@@ -1,3 +1,5 @@
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <title>The Long Run</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500;1,9..144,600&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -375,10 +377,31 @@
     #controls{ align-items: flex-start; width: 100%; flex-direction: row; justify-content: space-between; }
     #btnRow{ justify-content: flex-start; }
     #cityMenu{ right: auto; left: 0; width: min(260px, 78vw); }
-    #statStrip{ flex-wrap: wrap; gap: 18px 24px; }
+    #statStrip{ display: grid; grid-template-columns: repeat(2, auto); column-gap: 36px; row-gap: 14px; }
     #panel{ width: 100%; max-width: 100%; top: auto; bottom: 0; height: 78vh; border-left: none; border-top: 1px solid var(--line); transform: translateY(100%); }
     #panel.open{ transform: translateY(0); }
     #hint{ display: none; }
+
+    /* legibility bump — small UI text reads too small on real phone screens */
+    .eyebrow{ font-size: 12.5px; }
+    #titleBlock p{ font-size: 16px; line-height: 1.5; }
+    .stat .n{ font-size: 22px; }
+    .stat .n small{ font-size: 13.5px; }
+    .stat .l{ font-size: 12px; }
+    #resetBtn, #noGpsBtn, #cityMenuBtn{ font-size: 13px; padding: 11px 16px; }
+    .cityRow .name{ font-size: 15px; }
+    .cityRow .mi{ font-size: 13px; }
+    .cityRow{ padding: 13px 14px; }
+    #legend{ font-size: 13px; }
+    #panelTitle{ font-size: 27px; }
+    #panelRegion{ font-size: 15px; }
+    #panelDates{ font-size: 13.5px; }
+    #panelStats .stat .n{ font-size: 21px; }
+    #panelStats .stat .l{ font-size: 11px; }
+    #yearTable .rowhead{ font-size: 12px; }
+    #yearTable .yr{ font-size: 14px; padding: 7px 0; }
+    #logLabel{ font-size: 12px; }
+    .runRow{ font-size: 14px; padding: 10px 0; }
   }
 </style>
 
