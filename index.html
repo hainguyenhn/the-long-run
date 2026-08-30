@@ -140,7 +140,7 @@
     gap: 14px;
   }
   #btnRow{ display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-  #resetBtn, #noGpsBtn, #cityMenuBtn{
+  #resetBtn, #cityMenuBtn{
     background: var(--panel);
     border: 1px solid var(--line);
     color: var(--ink-dim);
@@ -157,12 +157,12 @@
     gap: 8px;
     white-space: nowrap;
   }
-  #resetBtn:hover, #noGpsBtn:hover, #cityMenuBtn:hover{
+  #resetBtn:hover, #cityMenuBtn:hover{
     border-color: var(--ember-dim);
     color: var(--ember-bright);
     background: var(--panel-2);
   }
-  #resetBtn svg, #noGpsBtn svg, #cityMenuBtn svg{ width: 12px; height: 12px; }
+  #resetBtn svg, #cityMenuBtn svg{ width: 12px; height: 12px; }
 
   #cityMenuWrap{ position: relative; }
   #cityMenuBtn.active{ border-color: var(--ember-dim); color: var(--ember-bright); background: var(--panel-2); }
@@ -388,7 +388,7 @@
     .stat .n{ font-size: 22px; }
     .stat .n small{ font-size: 13.5px; }
     .stat .l{ font-size: 12px; }
-    #resetBtn, #noGpsBtn, #cityMenuBtn{ font-size: 13px; padding: 11px 16px; }
+    #resetBtn, #cityMenuBtn{ font-size: 13px; padding: 11px 16px; }
     .cityRow .name{ font-size: 15px; }
     .cityRow .mi{ font-size: 13px; }
     .cityRow{ padding: 13px 14px; }
@@ -420,10 +420,6 @@
       <button id="resetBtn" title="Return to overview">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
         Overview
-      </button>
-      <button id="noGpsBtn" title="Runs without a GPS fix — indoor, treadmill, or a lost signal">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/><line x1="4" y1="4" x2="20" y2="20"/></svg>
-        Indoor &amp; Unlocated
       </button>
       <div id="cityMenuWrap">
         <button id="cityMenuBtn" title="Jump straight to a city — handy when markers overlap on the globe">
@@ -488,7 +484,7 @@ const noGps = DATA.noGps;
 
 // ---------- header stats ----------
 document.getElementById('subline').textContent =
-  `${fmtInt(DATA.summary.total_runs)} runs since ${fmtDate(DATA.summary.first_date)} — ${DATA.summary.places} cities mapped, ${fmtInt(noGps.count)} off the grid.`;
+  `${fmtInt(DATA.summary.total_runs)} runs since ${fmtDate(DATA.summary.first_date)} — ${DATA.summary.places} cities mapped.`;
 
 const statStrip = document.getElementById('statStrip');
 const stats = [
@@ -510,7 +506,7 @@ function pointsData(){
 }
 function arcsData(){
   return clusters.filter(c => c !== home).map(c => ({
-    startLat: home.lat, startLng: home.lon, endLat: c.lat, endLng: c.lon
+    cluster: c, startLat: home.lat, startLng: home.lon, endLat: c.lat, endLng: c.lon
   }));
 }
 function pathsData(){
@@ -564,11 +560,16 @@ const world = Globe()(document.getElementById('globeViz'))
   .onPointClick(d => selectCluster(d.cluster))
   .arcsData(arcsData())
   .arcColor(() => ['rgba(255,138,61,0.5)', 'rgba(255,138,61,0.02)'])
-  .arcStroke(0.34)
+  .arcLabel(d => `<div style="font-family:Manrope,sans-serif;background:#121b30;border:1px solid #24304c;padding:8px 11px;border-radius:8px;color:#eef1f8;font-size:12.5px;line-height:1.5;">
+      <b style="color:#ffc08a;">${placeOf(d.cluster).city}</b>${placeOf(d.cluster).region ? `<span style="color:#8b93ac;"> &middot; ${placeOf(d.cluster).region}</span>` : ''}<br/>
+      ${fmtNum(d.cluster.miles)} mi &middot; ${fmtNum(d.cluster.hours)} hrs &middot; ${d.cluster.count} run${d.cluster.count>1?'s':''}
+    </div>`)
+  .arcStroke(0.5)
   .arcDashLength(0.4)
   .arcDashGap(0.25)
   .arcDashAnimateTime(4200)
   .arcAltitudeAutoScale(0.32)
+  .onArcClick(d => selectCluster(d.cluster))
   .pathsData(pathsData())
   .pathPoints('points')
   .pathColor(d => d.sel ? EMBER_BRIGHT : 'rgba(255,138,61,0.22)')
@@ -644,20 +645,6 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   const ctrl = world.controls();
   if (ctrl) ctrl.autoRotate = true;
 });
-
-function openNoGps(){
-  selected = null;
-  world.pointColor(world.pointColor());
-  world.pointsData(pointsData());
-  world.pathsData(pathsData());
-  world.ringsData(ringsData());
-  const ctrl = world.controls();
-  if (ctrl) ctrl.autoRotate = false;
-  renderPanel(noGps);
-  panel.classList.add('open');
-}
-
-document.getElementById('noGpsBtn').addEventListener('click', openNoGps);
 
 // ---------- city menu (jump straight to a cluster — bypasses overlapping globe markers) ----------
 const cityMenuBtn = document.getElementById('cityMenuBtn');
